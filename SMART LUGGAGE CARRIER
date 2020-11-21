@@ -1,0 +1,512 @@
+//Preprossesor Directivity and libraries
+
+#define BLYNK_PRINT Serial
+#include<BlynkSimpleSerialBLE.h>
+#include <LiquidCrystal.h>
+#include<TinyGPS++.h>
+#include <Ultrasonic.h>
+
+/*LCD initialization*/
+const int rs = 12, en = 11, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
+const int numRows = 2;
+const int numCols = 16;
+
+/*Buzzer Initialization*/
+const int buzzer = 10;
+
+/*L298 Motor Driver Initialization*/
+const int MOTOR1_IN1= 22; //RIGHT_FRONT
+const int MOTOR1_IN2= 23;
+const int MOTOR2_IN1= 24; //RIGHT_REAR
+const int MOTOR2_IN2= 25;
+const int MOTOR3_IN1= 42; //LEFT_FRONT
+const int MOTOR3_IN2= 43;
+const int MOTOR4_IN1= 44; //LEFT_REAR
+const int MOTOR4_IN2= 45;
+const int ENA = 6;
+const int ENB = 7;
+const int ENC = 8;
+const int END = 9;
+
+/*GPS parameter variable*/
+double botLat, botLog, userLat,userLog,userBotDist,prevLat,prevLog,userDist;
+int dd,mm,yy,hh,mi,sec;
+
+/*Ultrasonic varialble*/
+int distance1,distance2,distance3,distance4,distance5;
+
+/*Blynk authentication*/
+  char auth[]="d1452b8068c9474ab7858295c12c27";
+//  char auth[]="d1452b8068c9474ab7858295c12c27";
+//char auth[]="81c7ba839f0e4483bd37ca4428524bd2";
+//char auth[]="544a6ee54264412a8f2bf3e95bfcd7b6"; //lenovo k3note
+
+TinyGPSPlus gps; 
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
+Ultrasonic ultraLeft(28,29);   // (Trig PIN,Echo PIN)
+Ultrasonic ultraRight(30,31);  
+Ultrasonic ultraFront(32,33);   
+Ultrasonic ultraRear(34,35);  
+Ultrasonic ultraGND(36,37);   
+
+void intro(void);
+void pinInit(void);
+double CalculateDistance(double,double,double,double);
+void glowBuzzer(void);
+void allMotorOff(void);
+void mRightTurn(int);
+void mForward(int);
+void mBackward(int);
+void mLeftTurn(int);
+
+BLYNK_WRITE(V2){
+  GpsParam gps(param);
+  userLog=gps.getLon();
+  userLat=gps.getLat();    
+}
+
+void setup() { 
+  lcd.begin(16, 2);
+  Serial.begin(9600);
+  Serial1.begin(9600);
+  Serial2.begin(9600);
+  Blynk.begin(Serial2,auth);
+  pinInit();
+  intro();
+}
+
+void loop()
+{
+  while(Serial1.available()>0)
+  {
+    gps.encode(Serial1.read());
+    if(gps.location.isUpdated())
+    {
+START: botLat=gps.location.lat();
+      botLog=gps.location.lng();
+      hh=gps.time.hour();
+      mi=gps.time.minute();
+      sec=gps.time.second();
+      dd=gps.date.day();
+      mm=gps.date.month();
+      yy=gps.date.year();
+      
+      userBotDist=CalculateDistance(userLat,userLog,botLat,botLog);
+      userDist=CalculateDistance(userLat,userLog,prevLat,prevLog);
+      if(mi>30){
+        hh+=6;
+        mi=mi+30-60;
+      }
+      else{
+        hh+=5;
+        mi+=30;
+      }
+      if(hh>=18){
+        if(mi>30)
+          dd++; 
+      }
+      delay(100);
+      
+      Blynk.run();
+      delay(100);
+      
+      /*Print Date and Time*/
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("Time And Date:");
+      delay(200);
+      lcd.setCursor(0,0);
+      lcd.clear();
+      lcd.print("Date : ");
+      lcd.print(dd);
+      lcd.print("/");
+      lcd.print(mm);
+      lcd.print("/");
+      lcd.print(yy);
+      lcd.setCursor(0,1);
+      lcd.print("Time : ");
+      lcd.print(hh);
+      lcd.print(":");
+      lcd.print(mi);
+      lcd.print(":");
+      lcd.print(sec);
+      delay(1000);
+
+      /*Print Bot co-ordinate*/
+      lcd.setCursor(0,0);
+      lcd.clear();
+      lcd.print("bot co-ordinate"); 
+      delay(250);
+      lcd.setCursor(0,0);    
+      lcd.print("Lat : ");
+      lcd.print(botLat,6);
+      Serial.print("botLat : ");
+      Serial.print(botLat,6);
+      lcd.setCursor(0,1);
+      lcd.print("Log: ");
+      lcd.print(botLog,6); 
+      Serial.print("\tbotLog: ");
+      Serial.println(botLog,6);
+      delay(1000);
+
+      /*Print User co-ordinate*/
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("User Co-ordinates:");
+      delay(250);
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("Lat:");
+      lcd.print(userLat,7);
+      lcd.setCursor(0,1);
+      Serial.print("userLat : ");
+      Serial.print(userLat,7);
+      lcd.print("Log:");
+      lcd.print(userLog,7);
+      Serial.print("\tuserLog: ");
+      Serial.println (userLog,6);
+      delay(1000);
+
+      /*Print the distance between user and bot*/
+      lcd.clear();
+      lcd.setCursor(0,0);    
+      lcd.print("Distance:");
+      lcd.setCursor(0,1);
+      lcd.print(userBotDist,6);
+      lcd.print(" km");
+      delay(1000);
+     
+      lcd.clear();
+      lcd.setCursor(0,0);    
+      lcd.print("Distance:");
+      lcd.setCursor(0,1);
+      lcd.print(userBotDist*1000);
+      lcd.print(" m");
+      delay(1000);
+
+      lcd.clear();
+      lcd.setCursor(0,0);    
+      lcd.print("User Distance:");
+      lcd.setCursor(0,1);
+      lcd.print(userDist*1000);
+      lcd.print(" m");
+      delay(1000);
+      
+     /*Print Ultrasonic value*/
+      lcd.clear();
+      lcd.setCursor(0,0);
+      Serial.print("Left: ");
+      Serial.print(ultraLeft.read()); // CM or INC
+      Serial.print(" cm\t " );
+      lcd.print("left: ");
+      lcd.print(ultraLeft.read());
+      delay(200);
+      
+      Serial.print("Right: ");
+      Serial.print(ultraRight.read()); // CM or INC
+      Serial.print(" cm\t" );
+      lcd.setCursor(0,1);
+      lcd.print("right: ");
+      lcd.println(ultraRight.read());
+      delay(200);
+      
+      Serial.print("Front ");
+      Serial.print(ultraFront.read()); // CM or INC
+      Serial.print(" cm\t" );
+      lcd.clear();
+      lcd.setCursor(0,0); 
+      lcd.print("front: ");
+      lcd.print(ultraFront.read());
+      delay(200);
+      
+      Serial.print("Rear ");
+      Serial.print(ultraRear.read()); // CM or INC
+      Serial.print("cm\t" );
+      lcd.setCursor(0,1); 
+      lcd.print("rear: ");
+      lcd.print(ultraRear.read());
+      delay(200);
+      
+      Serial.print("GND: ");
+      Serial.print(ultraGND.read()); // CM or INC
+      Serial.println(" cm\t" );
+      lcd.clear();
+      lcd.setCursor(0,0); 
+      lcd.print("GND: ");
+      lcd.print(ultraGND.read());
+      delay(200); 
+      
+      /*** Main****/
+      if(ultraGND.read()>8)
+      {
+        while(ultraGND.read()>8)
+        {
+            lcd.clear();
+            lcd.setCursor(0,0); 
+            lcd.print("GND sensor!!!");
+            glowBuzzer(); 
+        }    
+      } 
+      /*Here we compare user's current and previous locations, 
+      if diff between them is more than 30m then we consider that current location as false reading.*/
+      else if((userDist*1000)>30) 
+      {
+        allMotorOff();
+        goto START;
+      }
+      else
+      {
+         if(ultraFront.read()>20)
+         {
+             if((userLat<botLat)&&(userLog<botLog))//for south
+             {
+                Serial.print("south direction\t"); 
+                if(userLat>prevLat) // sw-right
+                { 
+                   Serial.println("south-west direction");
+                   mRightTurn(50);
+                   delay(100);
+                   allMotorOff();      
+                } 
+                else if(userLog>prevLog) //se-left
+                {
+                   Serial.println("south-east direction");
+                   mLeftTurn(50);
+                   delay(100);
+                   allMotorOff();
+                }
+                mForward(100);
+            }
+            else if((userLat<botLat)&&(userLog>botLog))//for east
+            {       
+               Serial.print("east direction\t");
+               if(userLat>prevLat) // ne-left
+               { 
+                  Serial.println("north-east direction");
+                  mLeftTurn(50);
+                  delay(100);
+                  allMotorOff();       
+               } 
+               else if(userLog<prevLog)//se-right
+               {
+                  Serial.println("south-east direction");
+                  mRightTurn(50);
+                  delay(100);
+                  allMotorOff();
+               }
+               mForward(100);
+            }
+            else if((userLat>botLat)&&(userLog<botLog))//for west
+            {             
+               Serial.print("West direction\t");
+               if(userLat<prevLat) // sw-left
+               { 
+                   Serial.println("South-West direction"); 
+                   mLeftTurn(50);
+                   delay(100);
+                   allMotorOff();     
+               } 
+               else if(userLog<prevLog)//nw-right
+               {
+                   Serial.println("North-West direction");
+                   mRightTurn(50);
+                   delay(100);
+                   allMotorOff();
+               }
+               mForward(100);
+            }
+            else if((userLat>botLat)&&(userLog>botLog))//for North
+            {          
+               Serial.print("North direction\t");
+               if(userLat<prevLat) // ne-right
+               { 
+                   Serial.println("North-east direction");
+                   mRightTurn(50);
+                   delay(100);
+                   allMotorOff();      
+               } 
+               else if(userLog<prevLog) //nw-left
+               {
+                   Serial.println("North-West direction");
+                   mLeftTurn(50);
+                   delay(100);
+                   allMotorOff();
+               }
+               mForward(100);
+           }     //North ends
+        }     //if ultraFront.read() end
+        else
+        {
+          allMotorOff();
+        }
+    }
+    prevLat=userLat;
+    prevLog=userLog;
+  }
+}
+}
+
+//////////////////function definations///////////////
+
+void pinInit(void){
+  /*Buzzer pin initialization*/
+  pinMode(buzzer, OUTPUT); 
+  /*Motor drivers pin iniialization*/
+  pinMode(MOTOR1_IN1, OUTPUT);
+  pinMode(MOTOR1_IN2, OUTPUT);
+  pinMode(MOTOR2_IN1, OUTPUT);
+  pinMode(MOTOR2_IN2, OUTPUT);
+  pinMode(MOTOR3_IN1, OUTPUT);
+  pinMode(MOTOR3_IN2, OUTPUT);
+  pinMode(MOTOR4_IN1, OUTPUT);
+  pinMode(MOTOR4_IN2, OUTPUT);
+  pinMode(ENA, OUTPUT);
+  pinMode(ENB, OUTPUT);
+  pinMode(ENC, OUTPUT);
+  pinMode(END, OUTPUT);
+}
+
+void intro(){
+    lcd.clear();
+    lcd.setCursor(4, 0);
+    lcd.print("Welcome");
+    delay(1000);
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("  Smart Luggage");
+    delay(1000);
+    lcd.setCursor(4,1);
+    lcd.print("Carrier");
+    delay(1000);
+    lcd.clear();
+    lcd.setCursor(3,0);
+    lcd.print("Powered by:");
+    delay(1000);
+    lcd.clear();
+   
+    lcd.setCursor(3,0);
+    lcd.print("Abhiruchi");
+    delay(1000);
+    lcd.setCursor(6,1);
+    lcd.print("zope");
+    delay(1000);
+    lcd.clear();
+    lcd.setCursor(5,0);
+    lcd.print("Kirti");
+    delay(1000);
+    lcd.setCursor(5,1);
+    lcd.print("Bodkhe");
+    delay(1000);
+    lcd.clear();
+    
+    lcd.setCursor(4,0);
+    lcd.print("Pratiksha");
+    delay(1000);
+    lcd.setCursor(5,1);
+    lcd.print("Helonde");
+    delay(1000);
+    lcd.clear();
+    
+
+    lcd.setCursor(4,0);
+    lcd.print("Manisha");
+    delay(1000);
+    lcd.setCursor(4,1);
+    lcd.print("Kolhare");
+    delay(1000);
+    lcd.clear();
+}
+
+double CalculateDistance(double userLatCD, double userLogCD, double botLatCD, double botLogCD)
+{
+  int nRadius=6371;
+  double nDLat=(userLatCD-botLatCD)*(PI/180);
+  double nDLon=(userLogCD-botLogCD)*(PI/180);
+  double nA=pow(sin(nDLat/2),2)+cos(botLatCD)*cos(userLatCD)*pow(sin(nDLon/2),2);
+  double nC=2*atan2(sqrt(nA),sqrt(1-nA));
+  double nD=nRadius*nC;
+  return nD;
+}
+
+void allMotorOff(void){
+  digitalWrite(MOTOR1_IN1,LOW);
+  digitalWrite(MOTOR1_IN2,LOW);
+  digitalWrite(MOTOR2_IN1,LOW);
+  digitalWrite(MOTOR2_IN2,LOW);
+  digitalWrite(MOTOR3_IN1,LOW);
+  digitalWrite(MOTOR3_IN2,LOW);
+  digitalWrite(MOTOR4_IN1,LOW);
+  digitalWrite(MOTOR4_IN2,LOW);
+  }
+
+void mForward(int mspeed){
+  analogWrite(ENA, mspeed);
+  analogWrite(ENB, mspeed);
+  analogWrite(ENC, mspeed);
+  analogWrite(END, mspeed);
+  digitalWrite(MOTOR1_IN1,HIGH); //Clock
+  digitalWrite(MOTOR1_IN2,LOW);
+  digitalWrite(MOTOR2_IN1,HIGH); //clock
+  digitalWrite(MOTOR2_IN2,LOW);
+  
+  digitalWrite(MOTOR3_IN1,HIGH); //anticlock
+  digitalWrite(MOTOR3_IN2,LOW);
+  digitalWrite(MOTOR4_IN1,HIGH); //anticlock
+  digitalWrite(MOTOR4_IN2,LOW);
+}
+
+void mBackward(int mspeed){
+  analogWrite(ENA, mspeed);
+  analogWrite(ENB, mspeed);
+  analogWrite(ENC, mspeed);
+  analogWrite(END, mspeed);
+  digitalWrite(MOTOR1_IN1,LOW); //anticlock
+  digitalWrite(MOTOR1_IN2,HIGH);
+  digitalWrite(MOTOR2_IN1,LOW);//anticlovk
+  digitalWrite(MOTOR2_IN2,HIGH);
+  
+  digitalWrite(MOTOR3_IN1,LOW);//clock
+  digitalWrite(MOTOR3_IN2,HIGH);
+  digitalWrite(MOTOR4_IN1,LOW);//clock
+  digitalWrite(MOTOR4_IN2,HIGH);
+}
+
+void mLeftTurn(int mspeed){
+  analogWrite(ENA, mspeed);
+  analogWrite(ENB, mspeed);
+  analogWrite(ENC, mspeed);
+  analogWrite(END, mspeed);
+  digitalWrite(MOTOR1_IN1,HIGH);//clock
+  digitalWrite(MOTOR1_IN2,LOW);
+  digitalWrite(MOTOR2_IN1,HIGH);//clock
+  digitalWrite(MOTOR2_IN2,LOW);
+  
+  digitalWrite(MOTOR3_IN1,LOW);
+  digitalWrite(MOTOR3_IN2,HIGH);
+  digitalWrite(MOTOR4_IN1,LOW);
+  digitalWrite(MOTOR4_IN2,HIGH);
+}
+
+void mRightTurn(int mspeed){
+  analogWrite(ENA, mspeed);
+  analogWrite(ENB, mspeed);
+  analogWrite(ENC, mspeed);
+  analogWrite(END, mspeed);
+  digitalWrite(MOTOR1_IN1,LOW);
+  digitalWrite(MOTOR1_IN2,HIGH);
+  digitalWrite(MOTOR2_IN1,LOW);
+  digitalWrite(MOTOR2_IN2,HIGH);
+  
+  digitalWrite(MOTOR3_IN1,HIGH); //anticlock
+  digitalWrite(MOTOR3_IN2,LOW);
+  digitalWrite(MOTOR4_IN1,HIGH); //anticlock
+  digitalWrite(MOTOR4_IN2,LOW);
+}
+
+void glowBuzzer(void)
+{
+  digitalWrite(buzzer, HIGH);
+  delay(500);
+  digitalWrite(buzzer, LOW);
+  delay(500);
+}
